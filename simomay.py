@@ -1,104 +1,104 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
-from datetime import datetime
 
-st.set_page_config(page_title="Dashboard Siomay Faiz", layout="wide")
+# Konfigurasi halaman agar lebih lebar
+st.set_page_config(page_title="Dashboard Siomay Jawara", layout="wide")
 
-st.title("📊 Dashboard Bisnis Siomay Faiz")
+st.title("🥟 Dashboard Penjualan Siomay Jawara Malang")
+st.markdown("*(Data otomatis ditarik dari Google Sheets. Gunakan menu di sebelah kiri untuk memfilter data)*")
 
-# GANTI DENGAN LINK CSV HASIL PUBLISH TO WEB KAMU
-SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSQpueaMsFLP82So1rul7EpBis9ucMiV_ibctS0j8VaABIbX9R0AjVPYVjuEy97wIPg0Hbqh8eIV4U8/pub?output=csv"
+# Link Google Sheets milikmu
+SHEET_ID = "1U8Wu-iBqii4Mj_wPXmaX6722phs-LywC"
+# URL diubah ke format .xlsx agar bisa membaca SEMUA TAB (Januari, Februari, dll)
+EXCEL_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=xlsx"
 
-@st.cache_data
+@st.cache_data(ttl=15) # Refresh otomatis setiap 15 detik
 def load_data():
-    try:
-        df = pd.read_csv(SHEET_URL)
-        
-        # 1. Cari baris yang mengandung header 'TANGGAL'
-        if 'TANGGAL' not in df.columns:
-            for i in range(len(df)):
-                if "TANGGAL" in df.iloc[i].values:
-                    df.columns = df.iloc[i]
-                    df = df.iloc[i+1:].reset_index(drop=True)
-                    break
-        
-        # 2. Bersihkan nama kolom dari spasi atau karakter aneh
-        df.columns = [str(c).strip().upper() for c in df.columns]
-        
-        # 3. Hapus kolom 'UNNAMED' atau kolom kosong
-        df = df.loc[:, ~df.columns.str.contains('UNNAMED')]
-        
-        # 4. Konversi TANGGAL (Paling Krusial)
-        if 'TANGGAL' in df.columns:
-            # Ubah jadi datetime, yang gagal jadi NaT (Not a Time)
-            df['TANGGAL'] = pd.to_datetime(df['TANGGAL'], errors='coerce')
-            # Hapus baris yang tanggalnya kosong/error
-            df = df.dropna(subset=['TANGGAL'])
-        
-        # 5. Konversi Angka (Omset, Laba, dll)
-        for col in ['OMSET', 'LABA BERSIH', 'TOTAL PENGELUARAN']:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col].astype(str).str.replace(r'[Rp,.\s]', '', regex=True), errors='coerce').fillna(0)
-        
-        return df
-    except Exception as e:
-        st.error(f"Gagal memproses data: {e}")
-        return pd.DataFrame()
+    # Membaca seluruh tab/sheet yang ada di Google Sheets menggunakan openpyxl
+    xls = pd.read_excel(EXCEL_URL, sheet_name=None, engine='openpyxl')
+    return xls
 
-data = load_data()
-
-if not data.empty and 'TANGGAL' in data.columns:
-    # Urutkan berdasarkan tanggal terbaru
-    data = data.sort_values('TANGGAL')
-
-    # --- SIDEBAR FILTER ---
-    st.sidebar.header("📅 Filter Waktu")
+try:
+    semua_sheet = load_data()
     
-    # Ambil tanggal minimal dan maksimal yang VALID
-    min_date = data['TANGGAL'].min().date()
-    max_date = data['TANGGAL'].max().date()
-
-    # Kontrol input tanggal agar tidak error jika data kosong
-    try:
-        date_range = st.sidebar.date_input(
-            "Pilih Rentang Tanggal",
-            value=(min_date, max_date),
-            min_value=min_date,
-            max_value=max_date
-        )
+    # --- MEMBUAT MENU FILTER DI SAMPING (SIDEBAR) ---
+    st.sidebar.header("🎛️ Filter Data Laporan")
+    
+    # 1. Pilih Bulan (Berdasarkan nama Tab di Google Sheets)
+    daftar_bulan = list(semua_sheet.keys())
+    bulan_terpilih = st.sidebar.selectbox("Pilih Bulan:", daftar_bulan)
+    
+    # Ambil data hanya dari bulan yang dipilih
+    df = semua_sheet[bulan_terpilih]
+    
+    # Mengambil maksimal 35 baris pertama (menghindari tabel stok di bawahnya)
+    df = df.head(35)
+    
+    # Cek apakah kolom yang dibutuhkan tersedia
+    if ' TANGGAL' in df.columns and 'OMSET' in df.columns:
+        # Bersihkan data
+        df_sub = df[[' TANGGAL', 'OMSET']].copy()
+        df_sub = df_sub.dropna(subset=[' TANGGAL'])
+        df_sub = df_sub[df_sub[' TANGGAL'].astype(str).str.isnumeric() == True]
+        df_sub['OMSET'] = pd.to_numeric(df_sub['OMSET'], errors='coerce').fillna(0)
         
-        if len(date_range) == 2:
-            start_date, end_date = date_range
-            mask = (data['TANGGAL'].dt.date >= start_date) & (data['TANGGAL'].dt.date <= end_date)
-            filtered_df = data.loc[mask]
-        else:
-            filtered_df = data
+        # Saring data yang omsetnya lebih dari 0
+        df_bersih = df_sub[df_sub['OMSET'] > 0].copy()
+        
+        if not df_bersih.empty:
+            # Jadikan angka agar bisa dibuat slider (geser-geser tanggal)
+            df_bersih['Tgl_Angka'] = df_bersih[' TANGGAL'].astype(int)
+            min_tgl = int(df_bersih['Tgl_Angka'].min())
+            max_tgl = int(df_bersih['Tgl_Angka'].max())
             
-    except:
-        filtered_df = data
-
-    # --- TAMPILAN UTAMA ---
-    if not filtered_df.empty:
-        # Metrik
-        c1, c2, c3 = st.columns(3)
-        with c1: st.metric("💰 Total Omset", f"Rp {filtered_df['OMSET'].sum():,.0f}")
-        with c2: st.metric("💸 Pengeluaran", f"Rp {filtered_df['TOTAL PENGELUARAN'].sum():,.0f}")
-        with c3: st.metric("📈 Laba Bersih", f"Rp {filtered_df['LABA BERSIH'].sum():,.0f}")
-
-        # Grafik
-        st.subheader("📈 Tren Penghasilan")
-        fig = px.line(filtered_df, x='TANGGAL', y='OMSET', markers=True, title="Grafik Omset Harian")
-        st.plotly_chart(fig, use_container_width=True)
-
-        # Tabel
-        st.subheader("📋 Rincian Data")
-        st.dataframe(filtered_df, use_container_width=True)
-
-        # Download
-        csv = filtered_df.to_csv(index=False).encode('utf-8')
-        st.download_button("📩 Download Data Ini", data=csv, file_name="laporan_siomay.csv")
+            # 2. Filter Tanggal menggunakan Slider
+            rentang_tgl = st.sidebar.slider(
+                "Pilih Rentang Tanggal:",
+                min_value=min_tgl,
+                max_value=max_tgl,
+                value=(min_tgl, max_tgl) # Defaultnya memilih semua tanggal yang tersedia
+            )
+            
+            # Potong data sesuai rentang tanggal yang digeser di slider
+            df_filter = df_bersih[
+                (df_bersih['Tgl_Angka'] >= rentang_tgl[0]) & 
+                (df_bersih['Tgl_Angka'] <= rentang_tgl[1])
+            ].copy()
+            
+            df_filter['Tanggal_Tampil'] = "Tgl " + df_filter['Tgl_Angka'].astype(str)
+            
+            if not df_filter.empty:
+                total_omset = df_filter['OMSET'].sum()
+                max_omset = df_filter['OMSET'].max()
+                
+                # --- TAMPILAN DASHBOARD UTAMA ---
+                st.subheader(f"📊 Laporan: {rentang_tgl[0]} s/d {rentang_tgl[1]} {bulan_terpilih}")
+                
+                col1, col2 = st.columns(2)
+                col1.metric("Total Pendapatan", f"Rp {total_omset:,.0f}".replace(',', '.'))
+                col2.metric("Penjualan Tertinggi", f"Rp {max_omset:,.0f}".replace(',', '.'))
+                
+                # Grafik
+                st.line_chart(data=df_filter.set_index('Tanggal_Tampil')['OMSET'])
+                
+                # Tabel
+                st.subheader("Tabel Rincian")
+                st.dataframe(df_filter[['Tanggal_Tampil', 'OMSET']], use_container_width=True)
+                
+                # Tombol Download
+                csv = df_filter[['Tanggal_Tampil', 'OMSET']].to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label=f"📥 Download Laporan {bulan_terpilih} (CSV)",
+                    data=csv,
+                    file_name=f"Laporan_{bulan_terpilih}_{rentang_tgl[0]}_{rentang_tgl[1]}.csv",
+                    mime="text/csv",
+                )
+            else:
+                st.warning("Tidak ada data penjualan pada rentang tanggal tersebut.")
+        else:
+            st.info(f"Belum ada data omset yang diisi untuk bulan {bulan_terpilih}.")
     else:
-        st.warning("Data tidak tersedia untuk rentang waktu ini.")
-else:
-    st.info("Menunggu data dari Google Sheets... Pastikan kolom 'TANGGAL' sudah ada isinya.")
+        st.error(f"Format tabel di sheet '{bulan_terpilih}' tidak sesuai template.")
+
+except Exception as e:
+    st.error(f"Gagal membaca data. Pastikan file terhubung dan diset 'Siapa saja yang memiliki link'. Error: {e}")
