@@ -7,7 +7,7 @@ st.set_page_config(page_title="Dashboard Siomay Faiz", layout="wide")
 st.title("📊 Dashboard Bisnis Siomay Faiz")
 
 # Masukkan link CSV hasil publish to web kamu di sini (Gunakan tanda petik!)
-SHEET_URL = "MASUKKAN_LINK_CSV_DISINI"
+SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSQpueaMsFLP82So1rul7EpBis9ucMiV_ibctS0j8VaABIbX9R0AjVPYVjuEy97wIPg0Hbqh8eIV4U8/pub?output=csv"
 
 @st.cache_data
 def load_data():
