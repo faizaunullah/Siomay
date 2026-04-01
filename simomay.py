@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 
-# Konfigurasi halaman agar lebih lebar
+# Konfigurasi halaman
 st.set_page_config(page_title="Dashboard Siomay Jawara", layout="wide")
 
 st.title("🥟 Dashboard Lengkap Siomay Jawara Malang")
@@ -17,14 +17,14 @@ def load_data():
 try:
     semua_sheet = load_data()
     
-    # --- MENU FILTER DI SAMPING (SIDEBAR) ---
+    # --- MENU FILTER DI SAMPING ---
     st.sidebar.header("🎛️ Filter Data Laporan")
     daftar_bulan = list(semua_sheet.keys())
     bulan_terpilih = st.sidebar.selectbox("Pilih Bulan:", daftar_bulan)
     
     df_raw = semua_sheet[bulan_terpilih]
     
-    # --- 1. RINGKASAN KEUANGAN BULANAN ---
+    # --- 1. RINGKASAN KEUANGAN ---
     total_omset_sebulan = pd.to_numeric(df_raw.iloc[1, 1], errors='coerce')
     total_produksi = pd.to_numeric(df_raw.iloc[1, 2], errors='coerce') 
     total_operasional = pd.to_numeric(df_raw.iloc[1, 3], errors='coerce')
@@ -37,7 +37,7 @@ try:
     
     st.markdown("---")
     
-    # --- 2. DATA HARIAN PEMASUKAN ---
+    # --- 2. DATA PEMASUKAN ---
     df_harian = df_raw.head(35).copy()
     if ' TANGGAL' in df_harian.columns and 'OMSET' in df_harian.columns:
         df_harian = df_harian.dropna(subset=[' TANGGAL'])
@@ -63,11 +63,11 @@ try:
         st.error("Format tabel omset tidak sesuai.")
         rentang_tgl = (1, 31)
 
-    # --- 3. TABEL RINCIAN PENGELUARAN LAIN (SEBELAH KANAN) ---
+    # --- 3. TABEL RINCIAN PENGELUARAN (MENYEDOT SEMUA DI SEBELAH KANAN) ---
     st.markdown("---")
     st.subheader(f"💸 Tabel Rincian Pengeluaran Lain (Tgl {rentang_tgl[0]} - {rentang_tgl[1]})")
     
-    # Mesin pencari otomatis letak kolom "KETERANGAN" di Excel-mu
+    # Cari letak kolom "KETERANGAN" di baris-baris atas
     col_ket = -1
     row_head = -1
     for r in range(15):
@@ -80,35 +80,38 @@ try:
             break
 
     if col_ket != -1:
-        # Mengambil 3 kolom: Tanggal(kiri), Keterangan(tengah), Nominal(kanan)
-        df_peng = df_raw.iloc[row_head+1:100, [col_ket-1, col_ket, col_ket+1]].copy()
+        # Ambil area yang sangat luas ke bawah (sampai baris 200) agar semua tabel terbaca
+        df_peng = df_raw.iloc[row_head+1:200, [col_ket-1, col_ket, col_ket+1]].copy()
         df_peng.columns = ['Tgl_Angka', 'Keterangan Barang', 'Nominal (Rp)']
         
-        # Bersihkan data yang kosong
+        # Bersihkan baris yang kosong atau berisi teks yang bukan pengeluaran
         df_peng = df_peng.dropna(subset=['Keterangan Barang'])
         df_peng['Keterangan Barang'] = df_peng['Keterangan Barang'].astype(str).str.strip()
-        df_peng = df_peng[df_peng['Keterangan Barang'] != ""]
-        df_peng = df_peng[df_peng['Keterangan Barang'].str.lower() != "nan"]
+        # Singkirkan baris yang berisi judul tabel atau kata 'KETERANGAN' lagi
+        df_peng = df_peng[~df_peng['Keterangan Barang'].str.upper().isin(['', 'NAN', 'NONE', 'KETERANGAN', 'KETERANGAN BARANG'])]
         
         df_peng['Nominal (Rp)'] = pd.to_numeric(df_peng['Nominal (Rp)'], errors='coerce').fillna(0)
         df_peng['Tgl_Angka'] = pd.to_numeric(df_peng['Tgl_Angka'], errors='coerce').fillna(0)
         
-        # Saring menggunakan slider tanggal dari menu kiri
+        # Hilangkan baris yang nominal dan tanggalnya 0 (kemungkinan bukan data valid)
+        df_peng = df_peng[(df_peng['Tgl_Angka'] > 0) & (df_peng['Nominal (Rp)'] > 0)]
+        
+        # Filter berdasarkan slider tanggal
         df_peng_filter = df_peng[(df_peng['Tgl_Angka'] >= rentang_tgl[0]) & (df_peng['Tgl_Angka'] <= rentang_tgl[1])].copy()
         
         if not df_peng_filter.empty:
             df_peng_filter['Tanggal'] = "Tgl " + df_peng_filter['Tgl_Angka'].astype(int).astype(str)
             tabel_tampil = df_peng_filter[['Tanggal', 'Keterangan Barang', 'Nominal (Rp)']]
             
-            st.dataframe(tabel_tampil, use_container_width=True)
+            # Reset index agar rapi
+            st.dataframe(tabel_tampil.reset_index(drop=True), use_container_width=True)
             
-            # Hitung total khusus di tabel ini
             total_tabel = df_peng_filter['Nominal (Rp)'].sum()
-            st.warning(f"**Total Pengeluaran Lain pada rentang tanggal ini: Rp {total_tabel:,.0f}**".replace(',', '.'))
+            st.warning(f"**Total Pengeluaran Lain (Tgl {rentang_tgl[0]} - {rentang_tgl[1]}): Rp {total_tabel:,.0f}**".replace(',', '.'))
         else:
-            st.success("✨ Tidak ada catatan pengeluaran barang pada rentang tanggal ini.")
+            st.success("✨ Tidak ada catatan pengeluaran di rentang tanggal ini.")
     else:
-        st.info("💡 Tabel Pengeluaran Lain belum ditemukan. Pastikan ada tulisan KETERANGAN di baris atas tabel tersebut.")
+        st.info("💡 Tabel Pengeluaran Lain belum ditemukan.")
 
     # --- 4. LAPORAN STOK ---
     st.markdown("---")
@@ -123,7 +126,7 @@ try:
         df_stok = df_stok[df_stok['Nama Menu'].astype(str).str.strip() != ""]
         
         if not df_stok.empty:
-            st.dataframe(df_stok, use_container_width=True)
+            st.dataframe(df_stok.reset_index(drop=True), use_container_width=True)
         else:
             st.info("Data tabel stok masih kosong.")
     else:
