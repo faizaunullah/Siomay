@@ -37,74 +37,79 @@ try:
     
     st.markdown("---")
     
-    # --- 2. DATA HARIAN (PERSIAPAN) ---
+    # --- 2. DATA HARIAN PEMASUKAN ---
     df_harian = df_raw.head(35).copy()
     if ' TANGGAL' in df_harian.columns and 'OMSET' in df_harian.columns:
-        # Bersihkan data tanggal
         df_harian = df_harian.dropna(subset=[' TANGGAL'])
         df_harian = df_harian[df_harian[' TANGGAL'].astype(str).str.isnumeric() == True]
         df_harian['Tgl_Angka'] = df_harian[' TANGGAL'].astype(int)
-        
-        # Bersihkan data angka & teks (OMSET, PRODUKSI, OPERASIONAL, RINCIAN)
         df_harian['OMSET'] = pd.to_numeric(df_harian['OMSET'], errors='coerce').fillna(0)
-        df_harian['Biaya_Produksi'] = pd.to_numeric(df_harian['TOTAL PENGELUARAN'], errors='coerce').fillna(0) # Ini kolom "Dr Produksi"
-        df_harian['Pengeluaran_Op'] = pd.to_numeric(df_harian['Unnamed: 3'], errors='coerce').fillna(0) # Ini kolom "Belanja/Op"
-        df_harian['Rincian'] = df_harian['RINCIAN'].fillna("-")
         
-        # Buat Slider Tanggal
         min_tgl = int(df_harian['Tgl_Angka'].min())
         max_tgl = int(df_harian['Tgl_Angka'].max())
         rentang_tgl = st.sidebar.slider("Pilih Rentang Tanggal:", min_tgl, max_tgl, (min_tgl, max_tgl))
         
-        # Filter data berdasarkan slider
         df_filter = df_harian[(df_harian['Tgl_Angka'] >= rentang_tgl[0]) & (df_harian['Tgl_Angka'] <= rentang_tgl[1])].copy()
         df_filter['Tanggal_Tampil'] = "Tgl " + df_filter['Tgl_Angka'].astype(str)
         
-        # --- 2A. BAGIAN PEMASUKAN (OMSET) ---
         st.subheader(f"📈 Laporan Pemasukan (Tgl {rentang_tgl[0]} - {rentang_tgl[1]})")
         df_omset = df_filter[df_filter['OMSET'] > 0].copy()
-        
         if not df_omset.empty:
             st.line_chart(data=df_omset.set_index('Tanggal_Tampil')['OMSET'])
             st.dataframe(df_omset[['Tanggal_Tampil', 'OMSET']].rename(columns={'Tanggal_Tampil': 'Tanggal', 'OMSET': 'Omset (Rp)'}), use_container_width=True)
         else:
             st.info("Belum ada pemasukan/omset di rentang tanggal ini.")
-
-        # --- 2B. BAGIAN PENGELUARAN KHUSUS (DIUPGRADE) ---
-        st.subheader(f"💸 Rincian Pengeluaran (Bahan Baku & Operasional)")
-        # Menampilkan data asalkan ada pengeluaran produksi ATAU pengeluaran operasional
-        df_pengeluaran = df_filter[(df_filter['Biaya_Produksi'] > 0) | (df_filter['Pengeluaran_Op'] > 0)].copy()
-        
-        if not df_pengeluaran.empty:
-            # Membuat total gabungan per hari
-            df_pengeluaran['Total_Keluar_Harian'] = df_pengeluaran['Biaya_Produksi'] + df_pengeluaran['Pengeluaran_Op']
-            
-            tabel_pengeluaran = df_pengeluaran[['Tanggal_Tampil', 'Biaya_Produksi', 'Pengeluaran_Op', 'Total_Keluar_Harian', 'Rincian']].rename(
-                columns={
-                    'Tanggal_Tampil': 'Tanggal', 
-                    'Biaya_Produksi': 'Bahan Baku/Produksi (Rp)',
-                    'Pengeluaran_Op': 'Operasional/Lain (Rp)', 
-                    'Total_Keluar_Harian': 'Total Pengeluaran (Rp)',
-                    'Rincian': 'Keterangan Barang'
-                }
-            )
-            st.dataframe(tabel_pengeluaran, use_container_width=True)
-            
-            # Hitung total dari tabel yang sedang tampil
-            total_bahan = df_pengeluaran['Biaya_Produksi'].sum()
-            total_op = df_pengeluaran['Pengeluaran_Op'].sum()
-            total_semua = total_bahan + total_op
-            
-            st.warning(f"**Total Bahan Baku:** Rp {total_bahan:,.0f} &nbsp;&nbsp;|&nbsp;&nbsp; **Total Operasional:** Rp {total_op:,.0f} &nbsp;&nbsp;|&nbsp;&nbsp; **TOTAL KESELURUHAN:** Rp {total_semua:,.0f}".replace(',', '.'))
-        else:
-            st.success("✨ Tidak ada pengeluaran apa pun pada rentang tanggal ini.")
-            
     else:
-        st.error(f"Format tabel harian untuk bulan {bulan_terpilih} tidak sesuai.")
-    
+        st.error(f"Format tabel omset tidak sesuai.")
+        rentang_tgl = (1, 31)
+
+    # --- 3. TABEL RINCIAN PENGELUARAN BARU (MEMBACA TABEL DI SEBELAH KANAN) ---
     st.markdown("---")
+    st.subheader(f"💸 Rincian Pengeluaran Detail")
     
-    # --- 3. LAPORAN STOK (BAGIAN BAWAH EXCEL) ---
+    # Mesin pencari otomatis letak kolom "KETERANGAN" di Excel-mu
+    col_ket = -1
+    row_head = -1
+    for r in range(5):
+        for c in range(len(df_raw.columns)):
+            if str(df_raw.iloc[r, c]).strip().upper() == "KETERANGAN":
+                col_ket = c
+                row_head = r
+                break
+        if col_ket != -1:
+            break
+
+    if col_ket != -1:
+        # Jika ketemu, ambil 3 kolom sejajar: Tanggal(kiri), Keterangan(tengah), Nominal(kanan)
+        df_peng = df_raw.iloc[row_head+1:50, [col_ket-1, col_ket, col_ket+1]].copy()
+        df_peng.columns = ['Tanggal', 'Keterangan Barang', 'Nominal (Rp)']
+        
+        # Bersihkan data yang kosong
+        df_peng['Keterangan Barang'] = df_peng['Keterangan Barang'].astype(str).str.strip()
+        df_peng = df_peng[~df_peng['Keterangan Barang'].isin(['nan', 'None', ''])]
+        
+        df_peng['Nominal (Rp)'] = pd.to_numeric(df_peng['Nominal (Rp)'], errors='coerce').fillna(0)
+        df_peng['Tgl_Angka'] = pd.to_numeric(df_peng['Tanggal'], errors='coerce').fillna(0)
+        
+        # Saring menggunakan slider tanggal dari menu kiri
+        df_peng_filter = df_peng[(df_peng['Tgl_Angka'] >= rentang_tgl[0]) & (df_peng['Tgl_Angka'] <= rentang_tgl[1])].copy()
+        
+        if not df_peng_filter.empty:
+            df_peng_filter['Tanggal'] = "Tgl " + df_peng_filter['Tgl_Angka'].astype(int).astype(str)
+            tabel_tampil = df_peng_filter[['Tanggal', 'Keterangan Barang', 'Nominal (Rp)']]
+            
+            st.dataframe(tabel_tampil, use_container_width=True)
+            
+            # Hitung total khusus di tabel ini
+            total_tabel = df_peng_filter['Nominal (Rp)'].sum()
+            st.warning(f"**Total Rincian Pengeluaran (Tgl {rentang_tgl[0]}-{rentang_tgl[1]}): Rp {total_tabel:,.0f}**".replace(',', '.'))
+        else:
+            st.success("✨ Tidak ada catatan pengeluaran barang pada rentang tanggal ini.")
+    else:
+        st.info("💡 Tabel 'KETERANGAN' belum ditemukan. Pastikan Anda sudah mengetik kata KETERANGAN sebagai judul tabel di sebelah kanan Excel.")
+
+    # --- 4. LAPORAN STOK ---
+    st.markdown("---")
     st.subheader(f"📦 Laporan Stok Bawa & Sisa ({bulan_terpilih})")
     pencarian_stok = df_raw[df_raw.astype(str).apply(lambda x: x.str.contains('STOK DI BAWA', case=False, na=False)).any(axis=1)].index
     
@@ -112,7 +117,6 @@ try:
         baris_mulai = pencarian_stok[0]
         df_stok = df_raw.iloc[baris_mulai+2 : baris_mulai+12, [1, 3, 5, 6]].copy() 
         df_stok.columns = ["Nama Menu", "Stok Dibawa (Pcs)", "Sisa Stok (Pcs)", "Laku Terjual (Pcs)"]
-        
         df_stok = df_stok.dropna(subset=['Nama Menu'])
         df_stok = df_stok[df_stok['Nama Menu'].astype(str).str.strip() != ""]
         
@@ -124,4 +128,4 @@ try:
         st.warning("Tabel stok tidak ditemukan.")
 
 except Exception as e:
-    st.error(f"Gagal membaca data Google Sheets. Cek apakah izin 'Anyone with the link' sudah aktif. Error: {e}")
+    st.error(f"Gagal membaca data Google Sheets. Error: {e}")
