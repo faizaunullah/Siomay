@@ -9,7 +9,7 @@ st.title("📊 Sistem Monitoring Bisnis Siomay")
 st.write("Pantau performa harian dan perkembangan bisnismu di sini.")
 
 # Masukkan link CSV dari 'Publish to Web' Google Sheets
-SHEET_URL = "GANTI_DENGAN_LINK_CSV_KAMU"
+SHEET_URL = https://docs.google.com/spreadsheets/d/e/2PACX-1vSQpueaMsFLP82So1rul7EpBis9ucMiV_ibctS0j8VaABIbX9R0AjVPYVjuEy97wIPg0Hbqh8eIV4U8/pub?output=csv
 
 @st.cache_data
 def load_data():
