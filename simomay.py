@@ -54,21 +54,38 @@ try:
     # Logika Baru: Mencari tabel "PENGELUARAN LAIN-LAIN" secara dinamis
     st.subheader(f"💸 Rincian Belanja Barang (LPG, Plastik, Tahu, dll)")
     
-    # Cari posisi teks "PENGELUARAN LAIN" di seluruh sheet
-    found_row, found_col = None, None
+    # --- 4. TABEL RINCIAN BELANJA (VERSI FIX) ---
+    st.subheader(f"💸 Rincian Belanja Barang (LPG, Plastik, Tahu, dll)")
+    
+    # Cari baris yang mengandung "PENGELUARAN LAIN"
+    target_row = None
     for r in range(len(df_raw)):
-        for c in range(len(df_raw.columns)):
-            val = str(df_raw.iloc[r, c]).upper()
-            if "PENGELUARAN LAIN" in val or "RINCIAN BELANJA" in val:
-                found_row, found_col = r, c
-                break
-        if found_row: break
+        if "PENGELUARAN LAIN" in str(df_raw.iloc[r, 1]).upper() or "PENGELUARAN LAIN" in str(df_raw.iloc[r, 2]).upper():
+            target_row = r
+            break
 
-    if found_row is not None:
-        # Ambil data di bawah judul tersebut (biasanya kolom Tanggal, Nama Barang, Harga)
-        # Kita ambil 40 baris ke bawah untuk memastikan semua belanjaan masuk
-        df_belanja = df_raw.iloc[found_row+2 : found_row+45, [found_col, found_col+1, found_col+2]].copy()
-        df_belanja.columns = ['Tgl', 'Barang', 'Biaya']
+    if target_row is not None:
+        # Berdasarkan gambar, data mulai 2 baris di bawah judul
+        # Kita ambil Kolom B (Barang) dan Kolom E atau F (Harga)
+        # Kita gunakan indeks kolom manual sesuai gambar spreadsheetmu
+        df_belanja = df_raw.iloc[target_row+2 : target_row+15, [1, 4]].copy() 
+        df_belanja.columns = ['Nama Barang', 'Harga']
+        
+        # Bersihkan data: Hapus baris kosong dan konversi harga ke angka
+        df_belanja = df_belanja.dropna(subset=['Nama Barang'])
+        df_belanja['Harga'] = pd.to_numeric(df_belanja['Harga'], errors='coerce').fillna(0)
+        
+        # Hanya tampilkan yang harganya > 0 (supaya baris kosong tidak muncul)
+        df_belanja_view = df_belanja[df_belanja['Harga'] > 0]
+
+        if not df_belanja_view.empty:
+            # Format tampilan Rupiah
+            df_belanja_view['Harga'] = df_belanja_view['Harga'].map(lambda x: f"Rp {x:,.0f}")
+            st.table(df_belanja_view.reset_index(drop=True))
+        else:
+            st.info("Belum ada rincian belanja yang tercatat.")
+    else:
+        st.warning("Tabel 'Pengeluaran Lain' tidak ditemukan. Pastikan teksnya sesuai di Spreadsheet.")
         
         # Bersihkan data
         df_belanja['Tgl'] = pd.to_numeric(df_belanja['Tgl'], errors='coerce')
