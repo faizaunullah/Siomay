@@ -1,19 +1,19 @@
 import streamlit as st
 import pandas as pd
 
-# 1. Konfigurasi Halaman & Judul
-st.set_page_config(page_title="Dashboard Siomay Jawara", layout="wide")
+# 1. KONFIGURASI HALAMAN
+st.set_page_config(page_title="Dashboard Siomay Jawara", layout="wide", page_icon="🥟")
 
 st.title("🥟 Dashboard Super Lengkap Siomay Jawara")
-st.markdown("*(Grafik Omset, Rincian Belanja, Uang Setor, & Stok Barang)*")
+st.markdown("---")
 
-# Link Google Sheets (Pastikan ID ini benar)
+# Link Google Sheets (Export as XLSX agar mudah dibaca Pandas)
 SHEET_ID = "1L1C72W0C8heL5YLahlAliT3K_9gYkcfy9mCAk4rSFXY"
 EXCEL_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=xlsx"
 
 @st.cache_data(ttl=10)
 def load_data():
-    # Mengambil semua sheet sekaligus
+    # Membaca seluruh sheet yang ada di file
     return pd.read_excel(EXCEL_URL, sheet_name=None, engine='openpyxl')
 
 try:
@@ -21,80 +21,88 @@ try:
     
     # --- SIDEBAR FILTER ---
     st.sidebar.header("🎛️ Menu Filter")
-    bulan_terpilih = st.sidebar.selectbox("Pilih Bulan:", list(semua_sheet.keys()))
+    # Memilih bulan berdasarkan nama Sheet
+    bulan_list = [s for s in semua_sheet.keys() if "Sheet" not in s] # Filter nama sheet yg valid
+    bulan_terpilih = st.sidebar.selectbox("Pilih Bulan:", bulan_list)
     df_raw = semua_sheet[bulan_terpilih]
 
-    # --- 2. LOGIKA TANGGAL & OMSET (Tabel Atas) ---
-    # Kita ambil 31 baris pertama untuk data harian
-    df_harian = df_raw.iloc[1:33, [0, 1, 2, 3]].copy() 
-    df_harian.columns = ['Tanggal', 'Omset', 'Ket_Harian', 'Pengeluaran']
+    # --- 2. PENGOLAHAN DATA OMSET (Tabel Atas) ---
+    # Mengambil data harian (biasanya baris 2 sampai 32)
+    df_harian = df_raw.iloc[1:33, [0, 1, 3]].copy() # Kolom Tgl, Omset, Total Pengeluaran
+    df_harian.columns = ['Tanggal', 'Omset', 'Pengeluaran']
     
-    # Bersihkan data tanggal agar bisa masuk ke Slider
-    df_harian['Tgl_Fix'] = pd.to_numeric(df_harian['Tanggal'], errors='coerce')
-    df_harian = df_harian.dropna(subset=['Tgl_Fix'])
+    # Bersihkan Tanggal
+    df_harian['Tgl_Int'] = pd.to_numeric(df_harian['Tanggal'], errors='coerce')
+    df_harian = df_harian.dropna(subset=['Tgl_Int'])
     
-    min_t, max_t = int(df_harian['Tgl_Fix'].min()), int(df_harian['Tgl_Fix'].max())
+    # Slider Tanggal di Sidebar
+    min_t = int(df_harian['Tgl_Int'].min())
+    max_t = int(df_harian['Tgl_Int'].max())
     rentang = st.sidebar.slider("Pilih Rentang Tanggal:", min_t, max_t, (min_t, max_t))
 
     # Filter data berdasarkan slider
-    df_filt = df_harian[(df_harian['Tgl_Fix'] >= rentang[0]) & (df_harian['Tgl_Fix'] <= rentang[1])].copy()
-    df_filt['OMSET_RP'] = pd.to_numeric(df_filt['Omset'], errors='coerce').fillna(0)
-    df_filt['Tanggal_Str'] = "Tgl " + df_filt['Tgl_Fix'].astype(int).astype(str)
+    df_filt = df_harian[(df_harian['Tgl_Int'] >= rentang[0]) & (df_harian['Tgl_Int'] <= rentang[1])].copy()
+    df_filt['OMSET_VAL'] = pd.to_numeric(df_filt['Omset'], errors='coerce').fillna(0)
+    df_filt['Tgl_Str'] = "Tgl " + df_filt['Tgl_Int'].astype(int).astype(str)
 
-    # --- 3. TAMPILAN GRAFIK OMSET ---
-    st.subheader(f"📈 Grafik Omset Harian (Tgl {rentang[0]} - {rentang[1]})")
+    # --- 3. GRAFIK OMSET ---
+    st.subheader(f"📈 Tren Omset Harian ({bulan_terpilih})")
     if not df_filt.empty:
-        st.line_chart(data=df_filt.set_index('Tanggal_Str')['OMSET_RP'])
+        st.line_chart(data=df_filt.set_index('Tgl_Str')['OMSET_VAL'])
     else:
-        st.info("Tidak ada data omset untuk rentang ini.")
+        st.info("Data tidak tersedia untuk grafik.")
 
+    # --- 4. TABEL RINCIAN BELANJA (LPG, TAHU, KRESEK) ---
     st.markdown("---")
-
-    # --- 4. TABEL RINCIAN BELANJA (LPG, KRESEK, TAHU, DLL) ---
-    st.subheader(f"💸 Rincian Belanja Barang (LPG, Plastik, Tahu, dll)")
+    st.subheader("💸 Rincian Belanja Barang (LPG, Plastik, Tahu, dll)")
     
-    # Mencari baris yang mengandung judul tabel pengeluaran
-    target_row = None
+    # Cari baris judul "PENGELUARAN LAIN" secara dinamis
+    row_lain = None
     for r in range(len(df_raw)):
-        # Mengecek kolom B atau C (indeks 1 atau 2)
-        val = str(df_raw.iloc[r, 1]).upper()
-        if "PENGELUARAN LAIN" in val or "RINCIAN BELANJA" in val:
-            target_row = r
+        row_str = " ".join([str(x).upper() for x in df_raw.iloc[r, :].values])
+        if "PENGELUARAN LAIN" in row_str:
+            row_lain = r
             break
-
-    if target_row is not None:
-        # Berdasarkan struktur: Nama barang di kolom B (1), Harga di kolom E (4)
-        df_belanja = df_raw.iloc[target_row+2 : target_row+20, [1, 4]].copy() 
-        df_belanja.columns = ['Nama Barang', 'Harga']
+    
+    if row_lain is not None:
+        # Ambil area di bawah judul tersebut
+        df_temp = df_raw.iloc[row_lain+2 : row_lain+20, :].copy()
         
-        # Bersihkan data: Hapus baris kosong dan konversi harga
-        df_belanja = df_belanja.dropna(subset=['Nama Barang'])
-        df_belanja['Harga'] = pd.to_numeric(df_belanja['Harga'], errors='coerce').fillna(0)
+        belanja_list = []
+        for _, row in df_temp.iterrows():
+            nama_item = row.iloc[1] # Kolom B (Index 1)
+            # Cek harga di Kolom E atau F (Index 4 atau 5) karena sering merged
+            harga_item = row.iloc[4] if pd.notna(row.iloc[4]) and row.iloc[4] != 0 else row.iloc[5]
+            
+            # Validasi: Nama harus teks (bukan angka/No) dan Harga harus ada
+            if pd.notna(nama_item) and not str(nama_item).isdigit():
+                harga_clean = pd.to_numeric(harga_item, errors='coerce')
+                if harga_clean > 0:
+                    belanja_list.append({"Barang": nama_item, "Biaya": harga_clean})
         
-        # Hanya tampilkan barang yang ada harganya (biar rapi)
-        df_belanja_view = df_belanja[df_belanja['Harga'] > 0]
-
-        if not df_belanja_view.empty:
-            # Format tampilan ke Rupiah
-            df_belanja_view['Harga'] = df_belanja_view['Harga'].apply(lambda x: f"Rp {int(x):,}")
-            st.table(df_belanja_view.reset_index(drop=True))
+        if belanja_list:
+            df_belanja_final = pd.DataFrame(belanja_list)
+            # Format Rupiah untuk tampilan
+            df_belanja_disp = df_belanja_final.copy()
+            df_belanja_disp['Biaya'] = df_belanja_disp['Biaya'].apply(lambda x: f"Rp {int(x):,}")
+            st.table(df_belanja_disp)
         else:
-            st.info("Belum ada rincian belanja (elpiji/tahu) yang diisi di spreadsheet.")
+            st.warning("Data rincian belanja (elpiji/tahu) kosong di sheet ini.")
     else:
-        st.warning("Tabel 'Pengeluaran Lain' tidak ditemukan di sheet ini.")
+        st.error("Teks 'PENGELUARAN LAIN-LAIN' tidak ditemukan di spreadsheet.")
 
+    # --- 5. TABEL UANG SETOR ---
     st.markdown("---")
-
-    # --- 5. TABEL LAPORAN UANG SETOR ---
-    st.subheader("💰 Laporan Uang Setor (Omset - Pengeluaran)")
-    df_filt['PENGELUARAN_RP'] = pd.to_numeric(df_filt['Pengeluaran'], errors='coerce').fillna(0)
-    df_filt['SETOR'] = df_filt['OMSET_RP'] - df_filt['PENGELUARAN_RP']
+    st.subheader("💰 Laporan Uang Setor")
     
-    tabel_setor = df_filt[['Tgl_Fix', 'OMSET_RP', 'PENGELUARAN_RP', 'SETOR']].copy()
-    tabel_setor.columns = ['Tgl', 'Omset (Rp)', 'Total Belanja', 'Uang Setor']
+    df_filt['PENGELUARAN_VAL'] = pd.to_numeric(df_filt['Pengeluaran'], errors='coerce').fillna(0)
+    df_filt['SETOR_VAL'] = df_filt['OMSET_VAL'] - df_filt['PENGELUARAN_VAL']
     
-    # Format angka agar mudah dibaca
-    for col in ['Omset (Rp)', 'Total Belanja', 'Uang Setor']:
+    tabel_setor = df_filt[['Tgl_Int', 'OMSET_VAL', 'PENGELUARAN_VAL', 'SETOR_VAL']].copy()
+    tabel_setor.columns = ['Tgl', 'Omset', 'Total Belanja', 'Uang Setor']
+    
+    # Format ribuan agar rapi
+    for col in ['Omset', 'Total Belanja', 'Uang Setor']:
         tabel_setor[col] = tabel_setor[col].apply(lambda x: f"Rp {int(x):,}")
     
     st.dataframe(tabel_setor.reset_index(drop=True), use_container_width=True)
@@ -103,21 +111,21 @@ try:
     st.markdown("---")
     st.subheader("📦 Laporan Stok (Bawa vs Laku)")
     
-    idx_stok = None
+    row_stok = None
     for r in range(len(df_raw)):
-        if "STOK DI BAWA" in str(df_raw.iloc[r, :]).upper():
-            idx_stok = r
+        if "STOK DI BAWA" in str(df_raw.iloc[r, :].values).upper():
+            row_stok = r
             break
             
-    if idx_stok is not None:
-        # Ambil kolom Menu (1), Bawa (3), Sisa (5), Laku (6)
-        df_s = df_raw.iloc[idx_stok+2:idx_stok+12, [1, 3, 5, 6]].copy()
+    if row_stok is not None:
+        # Mengambil kolom Menu, Bawa, Sisa, Laku
+        df_s = df_raw.iloc[row_stok+2:row_stok+12, [1, 3, 5, 6]].copy()
         df_s.columns = ["Menu", "Bawa", "Sisa", "Laku"]
         df_s = df_s.dropna(subset=["Menu"])
         st.dataframe(df_s.reset_index(drop=True), use_container_width=True)
     else:
-        st.info("Tabel stok belum tersedia di sheet ini.")
+        st.info("Tabel stok tidak ditemukan.")
 
 except Exception as e:
-    st.error(f"Terjadi kendala pembacaan data: {e}")
-    st.info("Tips: Pastikan nama kolom atau struktur tabel di spreadsheet tidak berubah.")
+    st.error(f"Waduh, ada masalah teknis: {e}")
+    st.info("Saran: Cek apakah nama Sheet sudah benar dan file Google Sheets sudah di-share 'Anyone with the link'.")
