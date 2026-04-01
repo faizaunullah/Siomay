@@ -1,12 +1,14 @@
 import streamlit as st
 import pandas as pd
 
+# 1. Konfigurasi Halaman (Wajib Paling Atas)
 st.set_page_config(page_title="Dashboard Siomay Jawara", layout="wide")
 
-st.title("🥟 Dashboard Super Lengkap Siomay Jawara")
-st.markdown("*(Grafik Omset, Rincian Belanja LPG/Plastik, Uang Setor, & Stok Barang)*")
+st.title("🥟 Dashboard Ultimate Siomay Jawara")
+st.markdown("*(Ringkas, Lengkap, dan Terpadu: Pantau Omset, Semua Belanja, Setoran, dan Stok)*")
 
-SHEET_ID = "1L1C72W0C8heL5YLahlAliT3K_9gYkcfy9mCAk4rSFXY"
+# Link Spreadsheet Terbarumu
+SHEET_ID = "1U8Wu-iBqii4Mj_wPXmaX6722phs-LywC"
 EXCEL_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=xlsx"
 
 @st.cache_data(ttl=10)
@@ -16,99 +18,121 @@ def load_data():
 try:
     semua_sheet = load_data()
     
+    # --- SIDEBAR FILTER ---
     st.sidebar.header("🎛️ Menu Filter")
     bulan_terpilih = st.sidebar.selectbox("Pilih Bulan:", list(semua_sheet.keys()))
     df_raw = semua_sheet[bulan_terpilih]
 
-    # --- 1. AMBIL DATA OMSET HARIAN (TABEL KIRI) ---
-    df_harian = df_raw.head(35).copy()
+    # --- 2. TARIK DATA TABEL UTAMA (KIRI) ---
+    # Mengambil 5 kolom pertama: Tanggal, Omset, Produksi, Belanja Op, Rincian
+    df_main = df_raw.iloc[1:40, 0:5].copy()
+    df_main.columns = ['Tanggal', 'Omset', 'Biaya Produksi', 'Belanja Operasional', 'Rincian Utama']
     
-    # Mencari kolom secara akurat berdasarkan namanya
-    col_tgl = [c for c in df_harian.columns if 'TANGGAL' in str(c).upper()][0]
-    col_omset = [c for c in df_harian.columns if 'OMSET' in str(c).upper()][0]
+    # Bersihkan Data
+    df_main['Tanggal'] = pd.to_numeric(df_main['Tanggal'], errors='coerce')
+    df_main = df_main.dropna(subset=['Tanggal'])
+    df_main['Tanggal'] = df_main['Tanggal'].astype(int)
     
-    df_harian = df_harian.dropna(subset=[col_tgl])
-    df_harian = df_harian[df_harian[col_tgl].astype(str).str.isnumeric()]
+    df_main['Omset'] = pd.to_numeric(df_main['Omset'], errors='coerce').fillna(0)
+    df_main['Biaya Produksi'] = pd.to_numeric(df_main['Biaya Produksi'], errors='coerce').fillna(0)
+    df_main['Belanja Operasional'] = pd.to_numeric(df_main['Belanja Operasional'], errors='coerce').fillna(0)
+    df_main['Rincian Utama'] = df_main['Rincian Utama'].fillna("-")
     
-    df_main = pd.DataFrame()
-    df_main['Tanggal'] = df_harian[col_tgl].astype(int)
-    df_main['Omset'] = pd.to_numeric(df_harian[col_omset], errors='coerce').fillna(0)
+    # Hitung Uang Setor (Omset - (Produksi + Operasional))
+    df_main['Uang Setor'] = df_main['Omset'] - (df_main['Biaya Produksi'] + df_main['Belanja Operasional'])
 
+    # Filter Tanggal
     min_t, max_t = int(df_main['Tanggal'].min()), int(df_main['Tanggal'].max())
     rentang = st.sidebar.slider("Pilih Rentang Tanggal:", min_t, max_t, (min_t, max_t))
+    df_main_filter = df_main[(df_main['Tanggal'] >= rentang[0]) & (df_main['Tanggal'] <= rentang[1])]
 
-    # --- 2. AMBIL DATA PENGELUARAN LAIN (TABEL KANAN) ---
-    r_start, c_start = -1, -1
-    for r in range(25):
-        for c in range(len(df_raw.columns)):
-            if "PENGELUARAN LAIN" in str(df_raw.iloc[r, c]).upper():
-                r_start, c_start = r, c
-                break
-        if r_start != -1: break
-
-    df_peng_agg = pd.DataFrame(columns=['Tanggal', 'Total Belanja', 'Rincian Belanja'])
+    # --- 3. TARIK SEMUA TABEL RINCIAN (KANAN) ---
+    # Radar ini akan mencari semua tabel yang punya kolom "KETERANGAN" di Excel
+    semua_rincian = []
+    kolom_ditemukan = [] 
     
-    if r_start != -1:
-        # Ambil 3 kolom: Tanggal, Keterangan, Nominal
-        df_peng = df_raw.iloc[r_start+2:150, [c_start, c_start+1, c_start+2]].copy()
-        df_peng.columns = ['Tanggal', 'Keterangan', 'Nominal']
-        df_peng = df_peng.dropna(subset=['Keterangan'])
-        df_peng['Tanggal'] = pd.to_numeric(df_peng['Tanggal'], errors='coerce')
-        df_peng['Nominal'] = pd.to_numeric(df_peng['Nominal'], errors='coerce').fillna(0)
-        df_peng = df_peng[df_peng['Tanggal'] > 0]
+    for r in range(20):
+        for c in range(1, len(df_raw.columns) - 1):
+            val = str(df_raw.iloc[r, c]).strip().upper()
+            if "KETERANGAN" in val and c not in kolom_ditemukan:
+                kolom_ditemukan.append(c)
+                
+                # Cari nama tabel (misal "PENGELUARAN LAIN" atau "PRODUKSI")
+                nama_tabel = "Rincian Belanja"
+                if r > 0:
+                    atas = str(df_raw.iloc[r-1, c-1]).strip()
+                    if atas and atas.lower() != 'nan':
+                        nama_tabel = atas
+                
+                # Ambil datanya
+                df_temp = df_raw.iloc[r+1:150, [c-1, c, c+1]].copy()
+                df_temp.columns = ['Tanggal', 'Barang Dibeli', 'Nominal']
+                df_temp = df_temp.dropna(subset=['Barang Dibeli'])
+                
+                # Bersihkan Teks
+                df_temp['Barang Dibeli'] = df_temp['Barang Dibeli'].astype(str).str.strip()
+                kata_buang = ['', 'NAN', 'NONE', 'KETERANGAN', 'KETERANGAN BARANG', 'TANGGAL', 'NOMINAL']
+                df_temp = df_temp[~df_temp['Barang Dibeli'].str.upper().isin(kata_buang)]
+                
+                df_temp['Tanggal'] = pd.to_numeric(df_temp['Tanggal'], errors='coerce')
+                df_temp['Nominal'] = pd.to_numeric(df_temp['Nominal'], errors='coerce').fillna(0)
+                df_temp = df_temp.dropna(subset=['Tanggal'])
+                
+                if not df_temp.empty:
+                    df_temp['Kategori Tabel'] = nama_tabel
+                    semua_rincian.append(df_temp)
+
+    # Gabungkan semua tabel rincian yang ditemukan
+    if semua_rincian:
+        df_rincian_gabung = pd.concat(semua_rincian, ignore_index=True)
+        df_rincian_gabung = df_rincian_gabung[(df_rincian_gabung['Tanggal'] >= rentang[0]) & (df_rincian_gabung['Tanggal'] <= rentang[1])]
+        df_rincian_gabung = df_rincian_gabung[df_rincian_gabung['Nominal'] > 0]
+    else:
+        df_rincian_gabung = pd.DataFrame()
+
+    # --- 4. KOTAK RINGKASAN ATAS ---
+    st.subheader(f"💵 Ringkasan Keuangan (Tgl {rentang[0]} - {rentang[1]})")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Total Omset", f"Rp {df_main_filter['Omset'].sum():,.0f}".replace(',', '.'))
+    c2.metric("Biaya Produksi", f"Rp {df_main_filter['Biaya Produksi'].sum():,.0f}".replace(',', '.'))
+    c3.metric("Belanja Operasional", f"Rp {df_main_filter['Belanja Operasional'].sum():,.0f}".replace(',', '.'))
+    c4.error(f"**UANG SETOR: Rp {df_main_filter['Uang Setor'].sum():,.0f}**".replace(',', '.'))
+    
+    st.markdown("---")
+
+    # --- 5. TAMPILAN TABS (AGAR RINGKAS & LENGKAP) ---
+    tab1, tab2, tab3 = st.tabs(["📊 Laporan Utama & Setor", "🛍️ Daftar Rincian Belanja", "📦 Laporan Stok"])
+    
+    with tab1:
+        st.write("### Grafik Omset Harian")
+        grafik_data = df_main_filter.copy()
+        grafik_data['Tgl'] = "Tgl " + grafik_data['Tanggal'].astype(str)
+        st.line_chart(data=grafik_data.set_index('Tgl')['Omset'])
         
-        # JAHIT DATA: Menggabungkan rincian belanja di hari yang sama (Contoh: "LPG, Kresek")
-        if not df_peng.empty:
-            df_peng_agg = df_peng.groupby('Tanggal').agg({
-                'Nominal': 'sum',
-                'Keterangan': lambda x: ', '.join(x.astype(str))
-            }).reset_index()
-            df_peng_agg.columns = ['Tanggal', 'Total Belanja', 'Rincian Belanja']
+        st.write("### Tabel Setoran Harian")
+        st.dataframe(df_main_filter.rename(columns={'Biaya Produksi': 'Produksi (Rp)', 'Belanja Operasional': 'Operasional (Rp)', 'Omset': 'Omset (Rp)', 'Uang Setor': 'Setor (Rp)'}).reset_index(drop=True), use_container_width=True)
 
-    # --- 3. GABUNGKAN OMSET DAN PENGELUARAN ---
-    df_final = pd.merge(df_main, df_peng_agg, on='Tanggal', how='left')
-    df_final['Total Belanja'] = df_final['Total Belanja'].fillna(0)
-    df_final['Rincian Belanja'] = df_final['Rincian Belanja'].fillna("-")
-    
-    # Hitung Uang Setor Otomatis
-    df_final['Uang Setor'] = df_final['Omset'] - df_final['Total Belanja']
-    
-    # Filter Slider Tanggal
-    df_final = df_final[(df_final['Tanggal'] >= rentang[0]) & (df_final['Tanggal'] <= rentang[1])]
-    
-    # --- 4. TAMPILAN GRAFIK ---
-    st.subheader(f"📈 Grafik Omset Harian (Tgl {rentang[0]} - {rentang[1]})")
-    df_grafik = df_final.copy()
-    df_grafik['Tgl_Str'] = "Tgl " + df_grafik['Tanggal'].astype(str)
-    st.line_chart(data=df_grafik.set_index('Tgl_Str')['Omset'])
-    
-    st.markdown("---")
+    with tab2:
+        st.write("### Semua Catatan Pembelian Barang")
+        st.write("*(Diambil otomatis dari semua tabel rincian di sebelah kanan Spreadsheet Anda)*")
+        if not df_rincian_gabung.empty:
+            st.dataframe(df_rincian_gabung[['Tanggal', 'Kategori Tabel', 'Barang Dibeli', 'Nominal']].rename(columns={'Nominal': 'Harga (Rp)'}).reset_index(drop=True), use_container_width=True)
+        else:
+            st.info("Tidak ada catatan pembelian barang pada rentang tanggal ini.")
 
-    # --- 5. TAMPILAN TABEL UANG SETOR & RINCIAN ---
-    st.subheader("💰 Laporan Uang Setor & Rincian Belanja")
-    
-    tabel_tampil = df_final[['Tanggal', 'Omset', 'Total Belanja', 'Uang Setor', 'Rincian Belanja']].copy()
-    tabel_tampil.columns = ['Tanggal', 'Omset (Rp)', 'Total Belanja (Rp)', 'Uang Setor (Rp)', 'Daftar Barang Dibeli']
-    
-    st.dataframe(tabel_tampil.reset_index(drop=True), use_container_width=True)
-
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Total Omset", f"Rp {df_final['Omset'].sum():,.0f}".replace(',', '.'))
-    c2.metric("Total Pengeluaran", f"Rp {df_final['Total Belanja'].sum():,.0f}".replace(',', '.'))
-    c3.warning(f"**💰 TOTAL SETOR: Rp {df_final['Uang Setor'].sum():,.0f}**".replace(',', '.'))
-
-    # --- 6. TABEL STOK BARANG ---
-    st.markdown("---")
-    st.subheader("📦 Laporan Stok")
-    idx_stok = -1
-    for r in range(len(df_raw)):
-        if "STOK DI BAWA" in str(df_raw.iloc[r, :]).upper():
-            idx_stok = r
-            break
-    if idx_stok != -1:
-        df_s = df_raw.iloc[idx_stok+2:idx_stok+12, [1, 3, 5, 6]].copy()
-        df_s.columns = ["Menu", "Bawa", "Sisa", "Laku"]
-        st.dataframe(df_s.dropna(subset=["Menu"]).reset_index(drop=True), use_container_width=True)
+    with tab3:
+        st.write("### Catatan Stok Barang")
+        idx_stok = -1
+        for r in range(len(df_raw)):
+            if "STOK DI BAWA" in str(df_raw.iloc[r, :]).upper():
+                idx_stok = r
+                break
+        if idx_stok != -1:
+            df_s = df_raw.iloc[idx_stok+2:idx_stok+12, [1, 3, 5, 6]].copy()
+            df_s.columns = ["Menu", "Bawa", "Sisa", "Laku"]
+            st.dataframe(df_s.dropna(subset=["Menu"]).reset_index(drop=True), use_container_width=True)
+        else:
+            st.warning("Tabel stok tidak ditemukan.")
 
 except Exception as e:
-    st.error(f"Terjadi kendala: {e}")
+    st.error(f"Terjadi kendala saat membaca Spreadsheet: {e}")
