@@ -67,12 +67,13 @@ try:
     st.markdown("---")
     st.subheader(f"💸 Tabel Rincian Pengeluaran Lain (Tgl {rentang_tgl[0]} - {rentang_tgl[1]})")
     
-    # Cari letak kolom "KETERANGAN" di baris-baris atas
+    # Cari letak kolom "KETERANGAN BARANG" atau sejenisnya
     col_ket = -1
     row_head = -1
     for r in range(15):
         for c in range(len(df_raw.columns)):
-            if str(df_raw.iloc[r, c]).strip().upper() == "KETERANGAN":
+            teks_kolom = str(df_raw.iloc[r, c]).strip().upper()
+            if "KETERANGAN" in teks_kolom: # Sekarang dia akan mencari kata yang *mengandung* 'KETERANGAN'
                 col_ket = c
                 row_head = r
                 break
@@ -87,8 +88,10 @@ try:
         # Bersihkan baris yang kosong atau berisi teks yang bukan pengeluaran
         df_peng = df_peng.dropna(subset=['Keterangan Barang'])
         df_peng['Keterangan Barang'] = df_peng['Keterangan Barang'].astype(str).str.strip()
+        
         # Singkirkan baris yang berisi judul tabel atau kata 'KETERANGAN' lagi
-        df_peng = df_peng[~df_peng['Keterangan Barang'].str.upper().isin(['', 'NAN', 'NONE', 'KETERANGAN', 'KETERANGAN BARANG'])]
+        kata_dibuang = ['', 'NAN', 'NONE', 'KETERANGAN', 'KETERANGAN BARANG', 'PENGELUARAN LAIN']
+        df_peng = df_peng[~df_peng['Keterangan Barang'].str.upper().isin(kata_dibuang)]
         
         df_peng['Nominal (Rp)'] = pd.to_numeric(df_peng['Nominal (Rp)'], errors='coerce').fillna(0)
         df_peng['Tgl_Angka'] = pd.to_numeric(df_peng['Tgl_Angka'], errors='coerce').fillna(0)
