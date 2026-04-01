@@ -45,9 +45,10 @@ try:
         df_harian = df_harian[df_harian[' TANGGAL'].astype(str).str.isnumeric() == True]
         df_harian['Tgl_Angka'] = df_harian[' TANGGAL'].astype(int)
         
-        # Bersihkan data angka & teks
+        # Bersihkan data angka & teks (OMSET, PRODUKSI, OPERASIONAL, RINCIAN)
         df_harian['OMSET'] = pd.to_numeric(df_harian['OMSET'], errors='coerce').fillna(0)
-        df_harian['Pengeluaran_Op'] = pd.to_numeric(df_harian['Unnamed: 3'], errors='coerce').fillna(0)
+        df_harian['Biaya_Produksi'] = pd.to_numeric(df_harian['TOTAL PENGELUARAN'], errors='coerce').fillna(0) # Ini kolom "Dr Produksi"
+        df_harian['Pengeluaran_Op'] = pd.to_numeric(df_harian['Unnamed: 3'], errors='coerce').fillna(0) # Ini kolom "Belanja/Op"
         df_harian['Rincian'] = df_harian['RINCIAN'].fillna("-")
         
         # Buat Slider Tanggal
@@ -69,21 +70,34 @@ try:
         else:
             st.info("Belum ada pemasukan/omset di rentang tanggal ini.")
 
-        # --- 2B. BAGIAN PENGELUARAN KHUSUS ---
-        st.subheader(f"💸 Rincian Pengeluaran Lain / Operasional")
-        df_pengeluaran = df_filter[df_filter['Pengeluaran_Op'] > 0].copy()
+        # --- 2B. BAGIAN PENGELUARAN KHUSUS (DIUPGRADE) ---
+        st.subheader(f"💸 Rincian Pengeluaran (Bahan Baku & Operasional)")
+        # Menampilkan data asalkan ada pengeluaran produksi ATAU pengeluaran operasional
+        df_pengeluaran = df_filter[(df_filter['Biaya_Produksi'] > 0) | (df_filter['Pengeluaran_Op'] > 0)].copy()
         
         if not df_pengeluaran.empty:
-            tabel_pengeluaran = df_pengeluaran[['Tanggal_Tampil', 'Pengeluaran_Op', 'Rincian']].rename(
-                columns={'Tanggal_Tampil': 'Tanggal', 'Pengeluaran_Op': 'Nominal (Rp)', 'Rincian': 'Keterangan Penggunaan'}
+            # Membuat total gabungan per hari
+            df_pengeluaran['Total_Keluar_Harian'] = df_pengeluaran['Biaya_Produksi'] + df_pengeluaran['Pengeluaran_Op']
+            
+            tabel_pengeluaran = df_pengeluaran[['Tanggal_Tampil', 'Biaya_Produksi', 'Pengeluaran_Op', 'Total_Keluar_Harian', 'Rincian']].rename(
+                columns={
+                    'Tanggal_Tampil': 'Tanggal', 
+                    'Biaya_Produksi': 'Bahan Baku/Produksi (Rp)',
+                    'Pengeluaran_Op': 'Operasional/Lain (Rp)', 
+                    'Total_Keluar_Harian': 'Total Pengeluaran (Rp)',
+                    'Rincian': 'Keterangan Barang'
+                }
             )
             st.dataframe(tabel_pengeluaran, use_container_width=True)
             
-            # Hitung total pengeluaran di tabel yang tampil
-            total_pengeluaran_tabel = df_pengeluaran['Pengeluaran_Op'].sum()
-            st.warning(f"**Total Penggunaan Uang (Pengeluaran Lain): Rp {total_pengeluaran_tabel:,.0f}**".replace(',', '.'))
+            # Hitung total dari tabel yang sedang tampil
+            total_bahan = df_pengeluaran['Biaya_Produksi'].sum()
+            total_op = df_pengeluaran['Pengeluaran_Op'].sum()
+            total_semua = total_bahan + total_op
+            
+            st.warning(f"**Total Bahan Baku:** Rp {total_bahan:,.0f} &nbsp;&nbsp;|&nbsp;&nbsp; **Total Operasional:** Rp {total_op:,.0f} &nbsp;&nbsp;|&nbsp;&nbsp; **TOTAL KESELURUHAN:** Rp {total_semua:,.0f}".replace(',', '.'))
         else:
-            st.success("✨ Tidak ada pengeluaran operasional lain pada rentang tanggal ini.")
+            st.success("✨ Tidak ada pengeluaran apa pun pada rentang tanggal ini.")
             
     else:
         st.error(f"Format tabel harian untuk bulan {bulan_terpilih} tidak sesuai.")
