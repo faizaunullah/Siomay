@@ -5,7 +5,7 @@ import pandas as pd
 st.set_page_config(page_title="Dashboard Siomay Jawara", layout="wide")
 
 st.title("🥟 Dashboard Lengkap Siomay Jawara Malang")
-st.markdown("*(Data otomatis ditarik dari Google Sheets Baru. Gunakan menu di sebelah kiri untuk memfilter data)*")
+st.markdown("*(Data otomatis ditarik dari Google Sheets. Gunakan menu di kiri untuk memfilter)*")
 
 SHEET_ID = "1L1C72W0C8heL5YLahlAliT3K_9gYkcfy9mCAk4rSFXY"
 EXCEL_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=xlsx"
@@ -33,7 +33,7 @@ try:
     col1, col2, col3 = st.columns(3)
     col1.metric("Total Omset 1 Bulan", f"Rp {total_omset_sebulan:,.0f}".replace(',', '.'))
     col2.metric("Total Biaya Produksi", f"Rp {total_produksi:,.0f}".replace(',', '.'))
-    col3.metric("Total Pengeluaran Lain", f"Rp {total_operasional:,.0f}".replace(',', '.'))
+    col3.metric("Total Pengeluaran Keseluruhan", f"Rp {total_operasional:,.0f}".replace(',', '.'))
     
     st.markdown("---")
     
@@ -60,17 +60,17 @@ try:
         else:
             st.info("Belum ada pemasukan/omset di rentang tanggal ini.")
     else:
-        st.error(f"Format tabel omset tidak sesuai.")
+        st.error("Format tabel omset tidak sesuai.")
         rentang_tgl = (1, 31)
 
-    # --- 3. TABEL RINCIAN PENGELUARAN BARU (MEMBACA TABEL DI SEBELAH KANAN) ---
+    # --- 3. TABEL RINCIAN PENGELUARAN LAIN (SEBELAH KANAN) ---
     st.markdown("---")
-    st.subheader(f"💸 Rincian Pengeluaran Detail")
+    st.subheader(f"💸 Tabel Rincian Pengeluaran Lain (Tgl {rentang_tgl[0]} - {rentang_tgl[1]})")
     
     # Mesin pencari otomatis letak kolom "KETERANGAN" di Excel-mu
     col_ket = -1
     row_head = -1
-    for r in range(5):
+    for r in range(15):
         for c in range(len(df_raw.columns)):
             if str(df_raw.iloc[r, c]).strip().upper() == "KETERANGAN":
                 col_ket = c
@@ -80,16 +80,18 @@ try:
             break
 
     if col_ket != -1:
-        # Jika ketemu, ambil 3 kolom sejajar: Tanggal(kiri), Keterangan(tengah), Nominal(kanan)
-        df_peng = df_raw.iloc[row_head+1:50, [col_ket-1, col_ket, col_ket+1]].copy()
-        df_peng.columns = ['Tanggal', 'Keterangan Barang', 'Nominal (Rp)']
+        # Mengambil 3 kolom: Tanggal(kiri), Keterangan(tengah), Nominal(kanan)
+        df_peng = df_raw.iloc[row_head+1:100, [col_ket-1, col_ket, col_ket+1]].copy()
+        df_peng.columns = ['Tgl_Angka', 'Keterangan Barang', 'Nominal (Rp)']
         
         # Bersihkan data yang kosong
+        df_peng = df_peng.dropna(subset=['Keterangan Barang'])
         df_peng['Keterangan Barang'] = df_peng['Keterangan Barang'].astype(str).str.strip()
-        df_peng = df_peng[~df_peng['Keterangan Barang'].isin(['nan', 'None', ''])]
+        df_peng = df_peng[df_peng['Keterangan Barang'] != ""]
+        df_peng = df_peng[df_peng['Keterangan Barang'].str.lower() != "nan"]
         
         df_peng['Nominal (Rp)'] = pd.to_numeric(df_peng['Nominal (Rp)'], errors='coerce').fillna(0)
-        df_peng['Tgl_Angka'] = pd.to_numeric(df_peng['Tanggal'], errors='coerce').fillna(0)
+        df_peng['Tgl_Angka'] = pd.to_numeric(df_peng['Tgl_Angka'], errors='coerce').fillna(0)
         
         # Saring menggunakan slider tanggal dari menu kiri
         df_peng_filter = df_peng[(df_peng['Tgl_Angka'] >= rentang_tgl[0]) & (df_peng['Tgl_Angka'] <= rentang_tgl[1])].copy()
@@ -102,11 +104,11 @@ try:
             
             # Hitung total khusus di tabel ini
             total_tabel = df_peng_filter['Nominal (Rp)'].sum()
-            st.warning(f"**Total Rincian Pengeluaran (Tgl {rentang_tgl[0]}-{rentang_tgl[1]}): Rp {total_tabel:,.0f}**".replace(',', '.'))
+            st.warning(f"**Total Pengeluaran Lain pada rentang tanggal ini: Rp {total_tabel:,.0f}**".replace(',', '.'))
         else:
             st.success("✨ Tidak ada catatan pengeluaran barang pada rentang tanggal ini.")
     else:
-        st.info("💡 Tabel 'KETERANGAN' belum ditemukan. Pastikan Anda sudah mengetik kata KETERANGAN sebagai judul tabel di sebelah kanan Excel.")
+        st.info("💡 Tabel Pengeluaran Lain belum ditemukan. Pastikan ada tulisan KETERANGAN di baris atas tabel tersebut.")
 
     # --- 4. LAPORAN STOK ---
     st.markdown("---")
